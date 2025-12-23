@@ -68,3 +68,13 @@ docker compose up --build users-migrate wallet-migrate users wallet users-worker
 
 - Commit style: Conventional Commits (e.g., `feat: ...`, `fix: ...`, `chore: ...`)
 - Generate changelog + tag: `bun run release` (uses `standard-version`)
+
+## GitFlow
+
+Classic GitFlow is the recommended workflow:
+
+- Feature PRs: `feature/*` → `develop`
+- Release PRs: `release/*` → `main` (this is what lands changes on `main`)
+- Hotfix PRs: `hotfix/*` → `main`, then back-merge `main` → `develop`
+
+See `docs/gitflow.md` and `docs/code-review.md` for the step-by-step flow and review checklist.

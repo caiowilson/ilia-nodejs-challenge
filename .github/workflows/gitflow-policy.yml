@@ -1,0 +1,66 @@
+name: GitFlow Policy
+
+on:
+  pull_request:
+
+jobs:
+  policy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate branch and PR title
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const head = pr.head.ref;
+            const base = pr.base.ref;
+            const title = pr.title;
+
+            const errors = [];
+
+            const allowedHead =
+              /^(feature|fix|hotfix|release|chore|docs|refactor|perf|test|ci|build)\/[a-z0-9][a-z0-9._-]*$/;
+            const isMainToDevelop = head === "main" && base === "develop";
+
+            if (!allowedHead.test(head) && !isMainToDevelop) {
+              errors.push(
+                `Invalid branch name: "${head}". Expected e.g. feature/<ticket>-<desc>, release/<version>, hotfix/<ticket>-<desc>.`,
+              );
+            }
+
+            const conventionalTitle =
+              /^(feat|fix|chore|docs|refactor|test|perf|ci|build|revert)(\([^)]+\))?: .+/;
+            if (!conventionalTitle.test(title)) {
+              errors.push(
+                `PR title must follow Conventional Commits, e.g. "feat(users): add first/last name". Got: "${title}".`,
+              );
+            }
+
+            const startsWith = (prefix) => head.startsWith(prefix);
+            const isFeatureLike =
+              startsWith("feature/") ||
+              startsWith("fix/") ||
+              startsWith("chore/") ||
+              startsWith("docs/") ||
+              startsWith("refactor/") ||
+              startsWith("perf/") ||
+              startsWith("test/") ||
+              startsWith("ci/") ||
+              startsWith("build/");
+            if (isFeatureLike && base !== "develop") {
+              errors.push(
+                `Feature-like branches must target "develop". This PR targets "${base}".`,
+              );
+            }
+
+            if (startsWith("release/") && base !== "main") {
+              errors.push(`Release branches must target "main". This PR targets "${base}".`);
+            }
+
+            if (startsWith("hotfix/") && base !== "main") {
+              errors.push(`Hotfix branches must target "main". This PR targets "${base}".`);
+            }
+
+            if (errors.length > 0) {
+              core.setFailed(errors.join("\n"));
+            }
