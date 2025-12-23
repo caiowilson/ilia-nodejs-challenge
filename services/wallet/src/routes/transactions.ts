@@ -1,11 +1,15 @@
 import { randomUUID } from "node:crypto";
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply } from "fastify";
 import { canDebit, computeBalanceMinor } from "../domain/balance";
 import { rateLimitConfig } from "../plugins/rateLimit";
 
 type CreateTxBody = {
 	amountMinor: number;
 	description?: string;
+};
+
+type CreateTypedTxBody = CreateTxBody & {
+	type: "credit" | "debit";
 };
 
 type TxRow = {
@@ -28,6 +32,103 @@ function resolveIdempotencyKey(value: unknown): string | undefined {
 		return typeof first === "string" ? first : undefined;
 	}
 	return undefined;
+}
+
+async function createTransaction(
+	app: FastifyInstance,
+	reply: FastifyReply,
+	input: {
+		userId: string;
+		type: "credit" | "debit";
+		amountMinor: number;
+		description?: string;
+		idempotencyKey: string;
+	},
+): Promise<void> {
+	const { userId, type, amountMinor, description, idempotencyKey } = input;
+	const id = randomUUID();
+
+	const client = await app.db.connect();
+	try {
+		await client.query("BEGIN");
+		const walletRow = await client.query(
+			"SELECT id FROM wallets WHERE user_id = $1 FOR UPDATE",
+			[userId],
+		);
+		if (walletRow.rowCount === 0) {
+			await client.query("ROLLBACK");
+			reply.header("Retry-After", "2");
+			reply.code(503).send({
+				code: "WALLET_PROVISIONING",
+				message: "Wallet is being provisioned. Retry shortly.",
+			});
+			return;
+		}
+
+		const existing = await client.query<{ id: string }>(
+			`SELECT id
+       FROM transactions
+       WHERE user_id = $1 AND idempotency_key = $2 AND type = $3`,
+			[userId, idempotencyKey, type],
+		);
+		if (existing.rowCount && existing.rows[0]) {
+			await client.query("COMMIT");
+			reply.code(200).send({ id: existing.rows[0].id, status: "recorded" });
+			return;
+		}
+
+		if (type === "debit") {
+			const sums = await client.query<TxSumRow>(
+				`SELECT type, COALESCE(SUM(amount_minor), 0) AS amount_minor
+         FROM transactions
+         WHERE user_id = $1
+         GROUP BY type`,
+				[userId],
+			);
+			const balance = computeBalanceMinor(
+				sums.rows.map((row) => ({
+					type: row.type,
+					amountMinor: Number(row.amount_minor),
+				})),
+			);
+
+			if (!canDebit(balance, amountMinor)) {
+				await client.query("ROLLBACK");
+				reply.code(409).send({
+					code: "INSUFFICIENT_FUNDS",
+					message: "Insufficient balance",
+				});
+				return;
+			}
+		}
+
+		await client.query(
+			`INSERT INTO transactions (id, user_id, type, amount_minor, description, idempotency_key)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+			[id, userId, type, amountMinor, description ?? null, idempotencyKey],
+		);
+
+		await client.query("COMMIT");
+		reply.code(201).send({ id, status: "recorded" });
+	} catch (error) {
+		await client.query("ROLLBACK");
+		const err = error as { code?: string };
+		if (err.code === "23505") {
+			const existing = await client.query<{ id: string }>(
+				`SELECT id
+         FROM transactions
+         WHERE user_id = $1 AND idempotency_key = $2 AND type = $3`,
+				[userId, idempotencyKey, type],
+			);
+			if (existing.rowCount && existing.rows[0]) {
+				reply.code(200).send({ id: existing.rows[0].id, status: "recorded" });
+				return;
+			}
+		}
+		throw error;
+	} finally {
+		client.release();
+	}
 }
 
 export default async function transactionRoutes(app: FastifyInstance) {
@@ -85,6 +186,63 @@ export default async function transactionRoutes(app: FastifyInstance) {
 		},
 	);
 
+	app.post<{ Body: CreateTypedTxBody }>(
+		"/transactions",
+		{
+			preHandler: [app.authenticate, app.walletReady],
+			config: { rateLimit: rateLimitConfig.transactions },
+			schema: {
+				tags: ["wallet"],
+				headers: {
+					type: "object",
+					required: ["idempotency-key"],
+					properties: {
+						"idempotency-key": { type: "string", minLength: 1, maxLength: 128 },
+					},
+				},
+				body: {
+					type: "object",
+					required: ["type", "amountMinor"],
+					properties: {
+						type: { type: "string", enum: ["credit", "debit"] },
+						amountMinor: { type: "integer", minimum: 1 },
+						description: { type: "string" },
+					},
+				},
+				response: {
+					200: { $ref: "CreateTransactionResponse#" },
+					201: { $ref: "CreateTransactionResponse#" },
+					400: { $ref: "ErrorResponse#" },
+					401: { $ref: "ErrorResponse#" },
+					409: { $ref: "ErrorResponse#" },
+					503: { $ref: "ErrorResponse#" },
+				},
+			},
+		},
+		async (req, reply) => {
+			const userId = req.user.sub;
+			const { amountMinor, description, type } = req.body;
+			const idempotencyKey = resolveIdempotencyKey(
+				req.headers["idempotency-key"] ?? req.raw.headers["idempotency-key"],
+			);
+			if (!idempotencyKey) {
+				reply.code(400).send({
+					code: "MISSING_IDEMPOTENCY_KEY",
+					message: "Idempotency-Key header is required",
+				});
+				return;
+			}
+
+			await createTransaction(app, reply, {
+				userId,
+				type,
+				amountMinor,
+				description,
+				idempotencyKey,
+			});
+		},
+	);
+
 	app.post<{ Body: CreateTxBody }>(
 		"/transactions/credit",
 		{
@@ -129,66 +287,14 @@ export default async function transactionRoutes(app: FastifyInstance) {
 				});
 				return;
 			}
-			const id = randomUUID();
 
-			const client = await app.db.connect();
-			try {
-				await client.query("BEGIN");
-				const walletRow = await client.query(
-					"SELECT id FROM wallets WHERE user_id = $1 FOR UPDATE",
-					[userId],
-				);
-				if (walletRow.rowCount === 0) {
-					await client.query("ROLLBACK");
-					reply.header("Retry-After", "2");
-					reply.code(503).send({
-						code: "WALLET_PROVISIONING",
-						message: "Wallet is being provisioned. Retry shortly.",
-					});
-					return;
-				}
-
-				const existing = await client.query<{ id: string }>(
-					`SELECT id
-           FROM transactions
-           WHERE user_id = $1 AND idempotency_key = $2 AND type = 'credit'`,
-					[userId, idempotencyKey],
-				);
-				if (existing.rowCount && existing.rows[0]) {
-					await client.query("COMMIT");
-					reply.code(200).send({ id: existing.rows[0].id, status: "recorded" });
-					return;
-				}
-
-				await client.query(
-					`INSERT INTO transactions (id, user_id, type, amount_minor, description, idempotency_key)
-           VALUES ($1, $2, 'credit', $3, $4, $5)`,
-					[id, userId, amountMinor, description ?? null, idempotencyKey],
-				);
-
-				await client.query("COMMIT");
-				reply.code(201).send({ id, status: "recorded" });
-			} catch (error) {
-				await client.query("ROLLBACK");
-				const err = error as { code?: string };
-				if (err.code === "23505") {
-					const existing = await client.query<{ id: string }>(
-						`SELECT id
-           FROM transactions
-           WHERE user_id = $1 AND idempotency_key = $2 AND type = 'credit'`,
-						[userId, idempotencyKey],
-					);
-					if (existing.rowCount && existing.rows[0]) {
-						reply
-							.code(200)
-							.send({ id: existing.rows[0].id, status: "recorded" });
-						return;
-					}
-				}
-				throw error;
-			} finally {
-				client.release();
-			}
+			await createTransaction(app, reply, {
+				userId,
+				type: "credit",
+				amountMinor,
+				description,
+				idempotencyKey,
+			});
 		},
 	);
 
@@ -237,89 +343,14 @@ export default async function transactionRoutes(app: FastifyInstance) {
 				});
 				return;
 			}
-			const id = randomUUID();
 
-			const client = await app.db.connect();
-			try {
-				await client.query("BEGIN");
-				const walletRow = await client.query(
-					"SELECT id FROM wallets WHERE user_id = $1 FOR UPDATE",
-					[userId],
-				);
-				if (walletRow.rowCount === 0) {
-					await client.query("ROLLBACK");
-					reply.header("Retry-After", "2");
-					reply.code(503).send({
-						code: "WALLET_PROVISIONING",
-						message: "Wallet is being provisioned. Retry shortly.",
-					});
-					return;
-				}
-
-				const existing = await client.query<{ id: string }>(
-					`SELECT id
-           FROM transactions
-           WHERE user_id = $1 AND idempotency_key = $2 AND type = 'debit'`,
-					[userId, idempotencyKey],
-				);
-				if (existing.rowCount && existing.rows[0]) {
-					await client.query("COMMIT");
-					reply.code(200).send({ id: existing.rows[0].id, status: "recorded" });
-					return;
-				}
-
-				const sums = await client.query<TxSumRow>(
-					`SELECT type, COALESCE(SUM(amount_minor), 0) AS amount_minor
-           FROM transactions
-           WHERE user_id = $1
-           GROUP BY type`,
-					[userId],
-				);
-				const balance = computeBalanceMinor(
-					sums.rows.map((row) => ({
-						type: row.type,
-						amountMinor: Number(row.amount_minor),
-					})),
-				);
-
-				if (!canDebit(balance, amountMinor)) {
-					await client.query("ROLLBACK");
-					reply.code(409).send({
-						code: "INSUFFICIENT_FUNDS",
-						message: "Insufficient balance",
-					});
-					return;
-				}
-
-				await client.query(
-					`INSERT INTO transactions (id, user_id, type, amount_minor, description, idempotency_key)
-           VALUES ($1, $2, 'debit', $3, $4, $5)`,
-					[id, userId, amountMinor, description ?? null, idempotencyKey],
-				);
-
-				await client.query("COMMIT");
-				reply.code(201).send({ id, status: "recorded" });
-			} catch (error) {
-				await client.query("ROLLBACK");
-				const err = error as { code?: string };
-				if (err.code === "23505") {
-					const existing = await client.query<{ id: string }>(
-						`SELECT id
-           FROM transactions
-           WHERE user_id = $1 AND idempotency_key = $2 AND type = 'debit'`,
-						[userId, idempotencyKey],
-					);
-					if (existing.rowCount && existing.rows[0]) {
-						reply
-							.code(200)
-							.send({ id: existing.rows[0].id, status: "recorded" });
-						return;
-					}
-				}
-				throw error;
-			} finally {
-				client.release();
-			}
+			await createTransaction(app, reply, {
+				userId,
+				type: "debit",
+				amountMinor,
+				description,
+				idempotencyKey,
+			});
 		},
 	);
 }
