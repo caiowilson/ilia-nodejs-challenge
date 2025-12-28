@@ -10,6 +10,18 @@
 - Bun `1.3.x`
 - Docker + Docker Compose (for local infra)
 
+## Common scripts
+
+- `bun run up`: build/start all Docker services + workers + migrations
+- `bun run down`: stop/clean Docker services
+- `bun run migrate`: run users + wallet migrations (via compose)
+- `bun run dev`: run users + wallet services locally
+- `bun run dev:users` / `bun run dev:wallet`: run a single service locally
+- `bun run test`: run service tests
+- `bun run lint`: run Biome checks
+- `bun run fmt`: format with Biome
+- `bun run typecheck`: run TypeScript checks
+
 ## Quickstart (Docker)
 
 1) Create env:
@@ -18,9 +30,17 @@ cp .env.example .env
 ```
 2) One command (services + workers + migrations + consolidated Swagger UI):
 ```
+bun run up
+```
+   Or manually with Docker Compose:
+```
 docker compose up --build users-migrate wallet-migrate users wallet users-worker wallet-worker rabbitmq users-db wallet-db docs
 ```
 3) Stop/clean:
+```
+bun run down
+```
+   Or manually with Docker Compose:
 ```
 docker compose down --remove-orphans
 ```
@@ -36,6 +56,10 @@ JWT_PRIVATE_KEY=ILIACHALLENGE
 ```
 2) Apply migrations:
 ```
+bun run migrate
+```
+   Or manually with Docker Compose:
+```
 docker compose run --rm users-migrate
 docker compose run --rm wallet-migrate
 ```
@@ -50,6 +74,10 @@ bun --filter @app/wallet run worker:consumer
 ## One-command Docker (all services + workers + migrations)
 
 This starts DBs, RabbitMQ, runs migrations, and brings up services + workers:
+```
+bun run up
+```
+Or manually with Docker Compose:
 ```
 docker compose up --build users-migrate wallet-migrate users wallet users-worker wallet-worker rabbitmq users-db wallet-db
 ```
