@@ -90,7 +90,7 @@ docker compose up --build users-migrate wallet-migrate users wallet users-worker
 - Consolidated Swagger UI (default in compose): `http://localhost:8080` (preloaded with Users + Wallet specs)
 - Hoppscotch (optional): configure an environment with `{{users}}` and `{{wallet}}` pointing to the two OpenAPI URLs for quick testing.
 - Note: the first wallet transaction after user creation can briefly return `WALLET_PROVISIONING` while the wallet worker initializes the user balance. Retry after a few seconds.
-- Note: wallet credit/debit requests require an `Idempotency-Key` header to ensure safe retries.
+- Note: wallet credit/debit requests require an `Idempotency-Key` header to ensure safe retries (Swagger UI auto-generates one if omitted).
 
 ## Releases
 

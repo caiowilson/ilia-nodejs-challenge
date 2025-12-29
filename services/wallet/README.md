@@ -8,7 +8,7 @@
 - `POST /v1/transactions/credit`
 - `POST /v1/transactions/debit`
 
-All transaction POST endpoints require an `Idempotency-Key` header.
+All transaction POST endpoints require an `Idempotency-Key` header. Swagger UI auto-generates one if you leave it blank.
 
 ### Worker
 

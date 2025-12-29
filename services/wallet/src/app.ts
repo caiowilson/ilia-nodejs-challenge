@@ -185,6 +185,34 @@ export function buildApp(): FastifyInstance {
 		uiConfig: {
 			docExpansion: "list",
 			deepLinking: true,
+			showMutatedRequest: true,
+			requestInterceptor: (request) => {
+				const method =
+					typeof request?.method === "string" ? request.method.toUpperCase() : "";
+				const url = typeof request?.url === "string" ? request.url : "";
+				if (method !== "POST" || !url.includes("/v1/transactions")) {
+					return request;
+				}
+
+				const existingHeader =
+					typeof request?.headers?.["Idempotency-Key"] === "string"
+						? request.headers["Idempotency-Key"]
+						: typeof request?.headers?.["idempotency-key"] === "string"
+							? request.headers["idempotency-key"]
+							: undefined;
+				if (typeof existingHeader === "string" && existingHeader.trim() !== "") {
+					return request;
+				}
+
+				const idempotencyKey =
+					typeof globalThis.crypto?.randomUUID === "function"
+						? globalThis.crypto.randomUUID()
+						: `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+				request.headers = request.headers && typeof request.headers === "object" ? request.headers : {};
+				request.headers["Idempotency-Key"] = idempotencyKey;
+				return request;
+			},
 		},
 	});
 
