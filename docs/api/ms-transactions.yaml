@@ -63,6 +63,8 @@ paths:
       tags: [wallet]
       security:
         - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
         required: true
         content:
@@ -80,6 +82,12 @@ paths:
                 description:
                   type: string
       responses:
+        "200":
+          description: Recorded (idempotent replay)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TransactionCreated"
         "201":
           description: Created
           content:
@@ -99,6 +107,8 @@ paths:
       tags: [wallet]
       security:
         - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
         required: true
         content:
@@ -106,6 +116,12 @@ paths:
             schema:
               $ref: "#/components/schemas/TransactionCreate"
       responses:
+        "200":
+          description: Recorded (idempotent replay)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TransactionCreated"
         "201":
           description: Created
           content:
@@ -123,6 +139,8 @@ paths:
       tags: [wallet]
       security:
         - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
         required: true
         content:
@@ -130,6 +148,12 @@ paths:
             schema:
               $ref: "#/components/schemas/TransactionCreate"
       responses:
+        "200":
+          description: Recorded (idempotent replay)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TransactionCreated"
         "201":
           description: Created
           content:
@@ -145,6 +169,15 @@ paths:
         "503":
           description: Wallet not provisioned
 components:
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
   schemas:
     TransactionCreate:
       type: object
