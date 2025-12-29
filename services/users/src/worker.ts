@@ -12,6 +12,25 @@ type OutboxRow = {
 	payload_json: unknown;
 };
 
+async function connectWithRetry(
+	url: string,
+	retries: number,
+	delayMs: number,
+) {
+	let attempt = 0;
+	while (true) {
+		try {
+			return await amqplib.connect(url);
+		} catch (error) {
+			attempt += 1;
+			if (attempt > retries) {
+				throw error;
+			}
+			await new Promise((resolve) => setTimeout(resolve, delayMs));
+		}
+	}
+}
+
 async function publishBatch(pool: Pool, channel: amqplib.ConfirmChannel) {
 	const client = await pool.connect();
 	try {
@@ -85,7 +104,19 @@ async function start() {
 	}
 
 	const pool = new Pool({ connectionString: config.databaseUrl });
-	const conn = await amqplib.connect(config.rabbitUrl);
+	const rabbitRetries = Number.parseInt(
+		process.env.RABBITMQ_CONNECT_RETRIES ?? "30",
+		10,
+	);
+	const rabbitDelayMs = Number.parseInt(
+		process.env.RABBITMQ_CONNECT_DELAY_MS ?? "1000",
+		10,
+	);
+	const conn = await connectWithRetry(
+		config.rabbitUrl,
+		Number.isNaN(rabbitRetries) ? 30 : rabbitRetries,
+		Number.isNaN(rabbitDelayMs) ? 1000 : rabbitDelayMs,
+	);
 	const channel = await conn.createConfirmChannel();
 	await channel.assertExchange(EXCHANGE, "topic", { durable: true });
 

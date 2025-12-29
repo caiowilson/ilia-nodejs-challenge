@@ -12,6 +12,25 @@ const ROUTING_KEY = "user.registered";
 const QUEUE = "wallet.provision";
 const DLQ = "wallet.provision.dlq";
 
+async function connectWithRetry(
+	url: string,
+	retries: number,
+	delayMs: number,
+) {
+	let attempt = 0;
+	while (true) {
+		try {
+			return await amqplib.connect(url);
+		} catch (error) {
+			attempt += 1;
+			if (attempt > retries) {
+				throw error;
+			}
+			await new Promise((resolve) => setTimeout(resolve, delayMs));
+		}
+	}
+}
+
 function parsePayload(message: ConsumeMessage) {
 	try {
 		const payload = JSON.parse(message.content.toString("utf8"));
@@ -65,7 +84,19 @@ async function start() {
 	}
 
 	const pool = new Pool({ connectionString: config.databaseUrl });
-	const conn = await amqplib.connect(config.rabbitUrl);
+	const rabbitRetries = Number.parseInt(
+		process.env.RABBITMQ_CONNECT_RETRIES ?? "30",
+		10,
+	);
+	const rabbitDelayMs = Number.parseInt(
+		process.env.RABBITMQ_CONNECT_DELAY_MS ?? "1000",
+		10,
+	);
+	const conn = await connectWithRetry(
+		config.rabbitUrl,
+		Number.isNaN(rabbitRetries) ? 30 : rabbitRetries,
+		Number.isNaN(rabbitDelayMs) ? 1000 : rabbitDelayMs,
+	);
 	const channel = await conn.createChannel();
 	await channel.prefetch(5);
 	await ensureTopology(channel, config.retryTtlMs);

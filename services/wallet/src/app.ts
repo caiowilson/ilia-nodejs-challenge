@@ -11,6 +11,7 @@ import rateLimitPlugin from "./plugins/rateLimit";
 import walletReadyPlugin from "./plugins/walletReady";
 import balanceRoutes from "./routes/balance";
 import transactionRoutes from "./routes/transactions";
+import { mapAjvValidationError } from "./http/validationError";
 
 type HealthCheck = {
 	name: string;
@@ -201,6 +202,12 @@ export function buildApp(): FastifyInstance {
 
 	app.setErrorHandler((error, req, reply) => {
 		if ((error as { validation?: unknown }).validation) {
+			const mapped = mapAjvValidationError((error as { validation?: unknown }).validation);
+			if (mapped) {
+				reply.code(400).send(mapped);
+				return;
+			}
+
 			reply
 				.code(400)
 				.send({ code: "VALIDATION_ERROR", message: "Invalid request" });

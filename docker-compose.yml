@@ -4,6 +4,11 @@ services:
     ports:
       - "5672:5672"
       - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
 
   users-db:
     image: postgres:16
@@ -44,7 +49,7 @@ services:
       users-db:
         condition: service_started
       rabbitmq:
-        condition: service_started
+        condition: service_healthy
 
   wallet:
     build:
@@ -63,7 +68,7 @@ services:
       wallet-db:
         condition: service_started
       rabbitmq:
-        condition: service_started
+        condition: service_healthy
 
   users-worker:
     build:
@@ -75,13 +80,16 @@ services:
       JWT_PRIVATE_KEY: "${JWT_PRIVATE_KEY:-ILIACHALLENGE}"
       USERS_DATABASE_URL: "${USERS_DATABASE_URL:-postgres://postgres:postgres@users-db:5432/users}"
       RABBITMQ_URL: "${RABBITMQ_URL:-amqp://guest:guest@rabbitmq:5672}"
+      RABBITMQ_CONNECT_RETRIES: "${RABBITMQ_CONNECT_RETRIES:-30}"
+      RABBITMQ_CONNECT_DELAY_MS: "${RABBITMQ_CONNECT_DELAY_MS:-1000}"
     depends_on:
       users-migrate:
         condition: service_completed_successfully
       users-db:
         condition: service_started
       rabbitmq:
-        condition: service_started
+        condition: service_healthy
+    restart: unless-stopped
 
   wallet-worker:
     build:
@@ -93,13 +101,16 @@ services:
       JWT_PRIVATE_KEY: "${JWT_PRIVATE_KEY:-ILIACHALLENGE}"
       WALLET_DATABASE_URL: "${WALLET_DATABASE_URL:-postgres://postgres:postgres@wallet-db:5432/wallet}"
       RABBITMQ_URL: "${RABBITMQ_URL:-amqp://guest:guest@rabbitmq:5672}"
+      RABBITMQ_CONNECT_RETRIES: "${RABBITMQ_CONNECT_RETRIES:-30}"
+      RABBITMQ_CONNECT_DELAY_MS: "${RABBITMQ_CONNECT_DELAY_MS:-1000}"
     depends_on:
       wallet-migrate:
         condition: service_completed_successfully
       wallet-db:
         condition: service_started
       rabbitmq:
-        condition: service_started
+        condition: service_healthy
+    restart: unless-stopped
 
   users-migrate:
     build:
