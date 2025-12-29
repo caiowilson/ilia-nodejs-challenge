@@ -7,7 +7,7 @@
 
 ## Requirements
 
-- Bun `1.3.x`
+- Bun `1.1.38` (matches Docker images)
 - Docker + Docker Compose (for local infra)
 
 ## Common scripts
@@ -54,15 +54,15 @@ WALLET_DATABASE_URL=postgres://...
 RABBITMQ_URL=amqp://...
 JWT_PRIVATE_KEY=ILIACHALLENGE
 ```
-2) Apply migrations:
+2) Apply migrations (local `psql`):
 ```
-bun run migrate
+psql "$USERS_DATABASE_URL" -f services/users/migrations/001_create_users.sql
+psql "$USERS_DATABASE_URL" -f services/users/migrations/002_create_outbox.sql
+psql "$USERS_DATABASE_URL" -f services/users/migrations/003_split_name.sql
+psql "$WALLET_DATABASE_URL" -f services/wallet/migrations/001_create_wallets.sql
+psql "$WALLET_DATABASE_URL" -f services/wallet/migrations/002_add_idempotency_key.sql
 ```
-   Or manually with Docker Compose:
-```
-docker compose run --rm users-migrate
-docker compose run --rm wallet-migrate
-```
+   Note: `bun run migrate` uses Docker Compose and the migrate scripts assume container paths.
 3) Start apps + workers:
 ```
 bun run dev:users

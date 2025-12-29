@@ -10,8 +10,7 @@ All notable changes to this project will be documented in this file.
 ### Infrastructure
 - Added `docker-compose.yml` for RabbitMQ + per-service Postgres.
 
-### Build/CI
-- Added GitHub Actions workflow running lint/typecheck/test.
+### Build/Tooling
 - Bootstrapped Bun workspaces and shared TypeScript config.
 
 ### Scaffolding
@@ -33,11 +32,9 @@ All notable changes to this project will be documented in this file.
 - Compose can now run migrations and workers automatically; added Docker one-command run.
 - README quickstart links to the one-command Docker section.
 - Served OpenAPI/Swagger UI for Users and Wallet; documented API docs and Hoppscotch import.
-- TODO noted for a consolidated Swagger UI container.
 - Added guarded integration test (register → wallet provisioning) runnable with `RUN_INTEGRATION=true`.
 - Integration tests cover both happy path and 401 without JWT.
 - Added `standard-version` release tooling and Conventional Commits note.
-- Added optional consolidated Swagger UI via `docker-compose.override.yml`.
 - Added users HTTP tests for register/login validations.
 - Added wallet HTTP integration tests (guarded) covering gating, credit/debit/list, and 401.
 - Added outbox publisher helper tests for routing key and request-id propagation.
@@ -45,7 +42,6 @@ All notable changes to this project will be documented in this file.
 - Added consumer DLQ integration test (guarded) for invalid payloads.
 - Proposed admin role + consolidated docs ADR (D011); added Hoppscotch optional note.
 - Migrates now run inside Docker network via compose-run migrate services.
-- Added one-command `up` and `up:docs` scripts for full stack (with optional consolidated Swagger UI).
+- Added one-command `up` and `up:docs` scripts for full stack (with consolidated Swagger UI).
 - Consolidated Swagger UI is now part of the default compose `up` flow.
 - Updated OpenAPI specs to match implemented APIs; preserved originals as `*.original.yaml`.
-- Removed obsolete override compose file (docs now default in main compose).

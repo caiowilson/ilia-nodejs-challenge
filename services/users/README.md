@@ -14,7 +14,9 @@ Register requires `firstName`, `lastName`, `email`, and `password`.
 
 ### Migrations
 
-- Run: `bun --filter @app/users run migrate`
-- `services/users/migrations/001_create_users.sql`
-- `services/users/migrations/002_create_outbox.sql`
-- `services/users/migrations/003_split_name.sql`
+- Docker (container paths): `bun --filter @app/users run migrate`
+- The migrate script expects `/app/...` paths and is intended for containers.
+- Local `psql` (use these files):
+  - `services/users/migrations/001_create_users.sql`
+  - `services/users/migrations/002_create_outbox.sql`
+  - `services/users/migrations/003_split_name.sql`
