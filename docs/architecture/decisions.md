@@ -76,7 +76,7 @@ This file captures the key technical decisions for the Users (3002) + Wallet (30
 - Track processed message IDs
 - Enforce uniqueness at DB level and use upsert
 
-**Choice:** `wallets.userId` is `UNIQUE` and provisioning uses `INSERT ... ON CONFLICT DO NOTHING`.
+**Choice:** `wallets.user_id` is `UNIQUE` and provisioning uses `INSERT ... ON CONFLICT DO NOTHING`.
 
 **Rationale:** Simple, robust idempotency for the core invariant.
 
@@ -142,7 +142,7 @@ This file captures the key technical decisions for the Users (3002) + Wallet (30
 **Rationale:** Prevents horizontal escalation with minimal complexity.
 
 **Consequences / follow-ups:**
-- No privileged admin operations; seed “admin” user is only for demo.
+- No privileged admin operations; no admin seeding is implemented in the current codebase.
 
 ---
 

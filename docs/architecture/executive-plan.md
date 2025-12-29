@@ -5,10 +5,10 @@
 * Users supports registration + login (password-based) and emits `UserRegistered` events via RabbitMQ using an Outbox pattern.
 * Wallet consumes `UserRegistered` to provision exactly one wallet per user; all wallet endpoints are gated until provisioned, returning `503` + fixed `Retry-After: 2`.
 * JWT auth (HS256) on all private routes using env secret `JWT_PRIVATE_KEY=ILIACHALLENGE`; internal secret `INTERNAL_JWT_PRIVATE_KEY=ILIACHALLENGE_INTERNAL` available if needed.
-* Add basic rate limiting, minimal observability, CI, and changelog automation via `standard-version` (no vendor lock-in).
+* Add basic rate limiting, minimal observability, and changelog automation via `standard-version` (no vendor lock-in); CI is optional and not configured in this repo.
 
 2. Assumptions
-* “Admin user” is a seeded normal user (no admin role / no special privileges).
+* No admin role or seeded admin user is implemented; all access is self-only via `sub`.
 * Single currency (USD). Amounts stored as integer minor units (`amountMinor`) for correctness, despite “simple number” preference.
 * “Concurrency agnostic” means we won’t implement DB locking/idempotency for transactions; we accept that extreme concurrent debits could violate invariants (documented).
 * Event delivery is at-least-once; consumer must be idempotent. Exactly-once messaging is out of scope.
@@ -88,7 +88,7 @@
   - Rationale: prevents horizontal privilege escalation while keeping scope minimal.
   - Pros: prevents horizontal privilege escalation with minimal code.
   - Cons: no “inspect other users” capabilities.
-  - Mitigations: seeded “admin” user for demo only; no privilege.
+  - Mitigations: not applicable (no admin seeding in the current codebase).
   - Alternative wins when: backoffice required → add roles and RBAC later.
 * Decision (D010): Rate limiting via Fastify plugin
   - Options: none; app-level plugin; gateway-only.
@@ -100,7 +100,7 @@
   - Alternative wins when: multi-instance scaling → shared store/gateway.
 * Decision (D004): Idempotent wallet creation (one wallet per user)
   - Options: processed-message tracking; DB uniqueness + upsert (selected).
-  - Decision: `wallets.userId` is `UNIQUE` and provisioning uses `INSERT ... ON CONFLICT DO NOTHING`.
+  - Decision: `wallets.user_id` is `UNIQUE` and provisioning uses `INSERT ... ON CONFLICT DO NOTHING`.
   - Rationale: simplest robust idempotency for the invariant.
   - Consequences: validate payloads; route poison events to DLQ.
 * Decision (D006): Balance stored as transaction ledger (computed on read)
@@ -125,27 +125,26 @@
   - `CHANGELOG.md`
 * Users service (3002)
   - Public endpoints:
-    - `POST /v1/auth/register` { name, email, password } → 201 { user, accessToken, expiresIn }
+    - `POST /v1/auth/register` { firstName, lastName, email, password } → 201 { user, accessToken, expiresIn }
     - `POST /v1/auth/login` { email, password } → 200 { accessToken, expiresIn }
   - Private endpoints (JWT):
     - `GET /v1/users/me` → 200 user profile
   - Passwords: bcrypt hash + verify; minimum password length (e.g., 8).
   - DB tables:
-    - `users(id, name, email UNIQUE, passwordHash, createdAt)`
-    - `outbox(id, type, payloadJson, status, attempts, lastError, createdAt, publishedAt)`
+    - `users(id, first_name, last_name, email UNIQUE, password_hash, created_at)`
+    - `outbox(id, type, payload_json, status, attempts, last_error, created_at, published_at)`
   - Registration flow:
     - DB tx: insert user + insert outbox(UserRegistered{userId})
     - Return JWT immediately.
   - Publisher worker:
     - Poll pending outbox rows, publish persistent message to RabbitMQ with confirms, mark published.
-  - Seed user:
-    - Insert a normal seeded user using env: `SEED_ADMIN_EMAIL`, `SEED_ADMIN_PASSWORD` (hash on seed).
+  - Seed user (optional; not implemented in current repo).
 * Wallet service (3001)
   - Provisioning consumer:
     - Consume `UserRegistered`; upsert wallet: `INSERT wallets(userId) ... ON CONFLICT DO NOTHING`; ACK.
   - DB tables:
-    - `wallets(id, userId UNIQUE, createdAt)`
-    - `transactions(id, userId, type, amountMinor, description, createdAt)`
+    - `wallets(id, user_id UNIQUE, created_at)`
+    - `transactions(id, user_id, type, amount_minor, description, created_at, idempotency_key)`
   - All wallet endpoints require JWT; derive `userId` from JWT `sub`.
   - Readiness gating (ALL wallet endpoints):
     - Middleware checks `wallets` row exists for `sub`.
@@ -168,7 +167,7 @@
   - Consumer retry logic:
     - For transient failures: route to next retry tier based on attempt count (`x-death`) then ACK original.
     - For invalid payload/permanent errors: reject to DLQ.
-* Configuration (.env.example contains no JWT tokens)
+* Configuration (.env.example includes placeholder secrets; not production-safe)
   - Required:
     - `JWT_PRIVATE_KEY=ILIACHALLENGE`
     - `INTERNAL_JWT_PRIVATE_KEY=ILIACHALLENGE_INTERNAL`
@@ -183,7 +182,7 @@
 * Changelog automation (no vendor lock-in)
   - Use `standard-version`.
   - Enforce Conventional Commits in team process (document in README).
-  - Add scripts: `npm run release` → updates `CHANGELOG.md`, bumps version, creates git tag.
+  - Add scripts: `bun run release` → updates `CHANGELOG.md`, bumps version, creates git tag.
 
 7. Security, Privacy, Compliance
 * JWT
@@ -213,14 +212,14 @@
 9. CI/CD and Developer Experience
 * GitFlow evidence
   - Create feature branch, open at least one PR, merge to main.
-* GitHub Actions (minimal)
+* GitHub Actions (optional; not configured in this repo)
   - install, lint, test, build
   - optional: docker build
   - optional: CodeQL for JS/TS
 * Developer scripts
-  - `npm run dev`, `npm run test`, `npm run lint`
-  - `npm run worker:publisher` (Users)
-  - `npm run worker:consumer` (Wallet)
+  - `bun run dev`, `bun run test`, `bun run lint`
+  - `bun --filter @app/users run worker:publisher`
+  - `bun --filter @app/wallet run worker:consumer`
 * Documentation (README)
   - One-command startup via docker compose
   - How to register/login and call wallet
@@ -258,7 +257,7 @@
   - Mitigation: publisher retries; readiness can reflect broker status; logs/metrics for pending outbox.
 
 13. Timeline and Milestones
-* Day 1: Users register/login/me + DB migrations/seed; JWT middleware.
+* Day 1: Users register/login/me + DB migrations; JWT middleware.
 * Day 2: RabbitMQ compose + outbox publisher (confirms) + basic docs.
 * Day 3: Wallet consumer + wallet gating 503 + wallet endpoints; retry ladder + DLQ; integration/e2e tests.
 * Day 4: rate limiting + observability + CI + changelog (`standard-version`) + final polish + PR/merge evidence.
