@@ -30,6 +30,18 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 # IntelliJ based IDEs
 .idea
 
+# VS Code
+.vscode/
+
+# direnv
+.envrc
+.direnv/
+
+# Vim swap files
+*.swp
+*.swo
+*.swx
+
 # Finder (MacOS) folder config
 .DS_Store
 
